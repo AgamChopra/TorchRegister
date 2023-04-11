@@ -6,8 +6,9 @@ Created on Mon Apr 10 17:46:42 2023
 """
 import torch
 import torch.nn as nn
+from torchio.transforms import RandomAffine
 from math import ceil
-from numpy import min, max
+from numpy import min, max, moveaxis, load
 from pytorch_msssim import SSIM
 from matplotlib import pyplot as plt
 from tqdm import trange
@@ -56,6 +57,13 @@ def pad3d(input_, target, device='cpu'):
                              mode='constant', value=0).to(dtype=torch.float, device=device)
 
 
+# !!! NEEDS REWORK. Ref. to https://pytorch.org/tutorials/intermediate/spatial_transformer_tutorial.html
+# Should not use flow field for this type of registration
+# 2 Step registration:
+    # Ridgid: predict variables, apply ridgid deformation
+    # Affine: predict variables, apply affine deformation
+# Calculate Error and backprop
+# Make a sperate flow registration method using current logic
 class SpatialTransformer(nn.Module):
     '''
     N-D Spatial Transformer
@@ -100,7 +108,7 @@ class attention_grid(nn.Module):
             in_channels=g_c, out_channels=i_c, kernel_size=1, stride=1, bias=True)
         self.psi = nn.Conv3d(in_channels=i_c, out_channels=1,
                              kernel_size=1, stride=1, bias=True)
-        self.bnorm = nn.BatchNorm3d(i_c)
+        self.bnorm = nn.InstanceNorm3d(i_c)
         self.mode = mode
 
     def forward(self, x, g, device):
@@ -123,63 +131,138 @@ class attention_grid(nn.Module):
         return y, w
 
 
-class grad_register(nn.Module):
-    '''
-    Non-linear model for 3D image registration via overfitting.
-    '''
+class Attention_UNet(nn.Module):
+    def __init__(self, img_size, mode='nearest', in_c=1, out_c=3, n=1):
+        super(Attention_UNet, self).__init__()
+        self.layer1 = nn.Sequential(nn.Conv3d(in_channels=in_c, out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
+                                    nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
 
-    def __init__(self, img_size, mode='nearest', in_c=1, out_c=3, n=1, criterions=[nn.MSELoss(), nn.L1Loss(), ssim_loss(win_size=3, win_sigma=0.1), PSNR()], weights=[0.15, 0.15, 0.60, 0.20], lr=1E-3, max_epochs=2000, stop_crit=1E-5):
-        super(grad_register, self).__init__()
-        self.down = nn.Sequential(nn.Conv3d(in_channels=in_c, out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.BatchNorm3d(int(64/n)),
-                                  nn.Conv3d(in_channels=int(
-                                      64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.BatchNorm3d(int(64/n)),
-                                  nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=2, stride=2), nn.ReLU(), nn.BatchNorm3d(int(64/n)))
+        self.skip1 = attention_grid(int(64/n), int(64/n), int(64/n))
 
-        self.skip = attention_grid(int(64/n), int(64/n), int(64/n))
+        self.layer2 = nn.Sequential(nn.Conv3d(in_channels=int(64/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
+                                    nn.Conv3d(in_channels=int(128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)))
 
-        self.latent = nn.Sequential(nn.Conv3d(in_channels=int(64/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.BatchNorm3d(int(128/n)),
+        self.skip2 = attention_grid(int(128/n), int(128/n), int(128/n))
+
+        self.layer3 = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
+                                    nn.Conv3d(in_channels=int(256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)))
+
+        self.skip3 = attention_grid(int(256/n), int(256/n), int(256/n))
+
+        self.layer4 = nn.Sequential(nn.Conv3d(in_channels=int(256/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
+                                    nn.Conv3d(in_channels=int(512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)))
+
+        self.skip4 = attention_grid(int(512/n), int(512/n), int(512/n))
+
+        self.layer5 = nn.Sequential(nn.Conv3d(in_channels=int(512/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(1024/n)),
                                     nn.Conv3d(in_channels=int(
-                                        128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.BatchNorm3d(int(128/n)),
-                                    nn.ConvTranspose3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=2, stride=2), nn.ReLU(), nn.BatchNorm3d(int(64/n)))
+                                        1024/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(1024/n)),
+                                    nn.ConvTranspose3d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(512/n)))
 
-        self.up = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.BatchNorm3d(int(64/n)),
-                                nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.BatchNorm3d(int(64/n)))
+        self.layer6 = nn.Sequential(nn.Conv3d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
+                                    nn.Conv3d(in_channels=int(
+                                        512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
+                                    nn.ConvTranspose3d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(256/n)))
+
+        self.layer7 = nn.Sequential(nn.Conv3d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
+                                    nn.Conv3d(in_channels=int(
+                                        256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
+                                    nn.ConvTranspose3d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(128/n)))
+
+        self.layer8 = nn.Sequential(nn.Conv3d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
+                                    nn.Conv3d(in_channels=int(
+                                        128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
+                                    nn.ConvTranspose3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
+
+        self.layer9 = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
+                                    nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
 
         self.out = nn.Conv3d(in_channels=int(
             64/n), out_channels=out_c, kernel_size=1)
 
+        self.maxpool = nn.MaxPool3d(kernel_size=2, stride=2)
+
         self.warp = SpatialTransformer(img_size, mode)
+
+    def forward(self, x, device, out_att=False):
+        y1 = self.layer1(x)
+        y = self.maxpool(y1)
+
+        y2 = self.layer2(y)
+        y = self.maxpool(y2)
+
+        y3 = self.layer3(y)
+        y = self.maxpool(y3)
+
+        y4 = self.layer4(y)
+        y = self.maxpool(y4)
+
+        y = self.layer5(y)
+        y4, _ = self.skip4(y4, y, device=device)
+
+        y = torch.cat((y4, pad3d(y, y4, device=device)), dim=1)
+        y = self.layer6(y)
+        y3, _ = self.skip3(y3, y, device=device)
+
+        y = torch.cat((y3, pad3d(y, y3, device=device)), dim=1)
+        y = self.layer7(y)
+        y2, _ = self.skip2(y2, y, device=device)
+
+        y = torch.cat((y2, pad3d(y, y2, device=device)), dim=1)
+        y = self.layer8(y)
+        y1, _ = self.skip1(y1, y, device=device)
+
+        y = torch.cat((y1, pad3d(y, y1, device=device)), dim=1)
+        y = self.layer9(y)
+
+        y = pad3d(y, x, device=device)
+
+        flow = self.out(y)
+
+        y = self.warp(x, flow)
+
+        return y, flow
+
+
+class flow_register(nn.Module):
+    '''
+    Non-linear model for 3D image registration via overfitting.
+    '''
+
+    def __init__(self, img_size, mode='bilinear', in_c=1, out_c=3, n=1, criterions=[nn.MSELoss(), nn.L1Loss(), ssim_loss(win_size=3, win_sigma=0.1), PSNR()], weights=[0.15, 0.15, 0.60, 0.20], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
+        super(flow_register, self).__init__()
+        self.model = Attention_UNet(
+            img_size, mode, in_c=in_c, out_c=out_c, n=n)
 
         self.flow = None
 
+        self.warp = None
+
         self.criterions, self.weights, self.lr, self.max_epochs, self.stop_crit = criterions, weights, lr, max_epochs, stop_crit
 
-        params = list(self.down.parameters()) + list(self.latent.parameters()) + list(self.skip.parameters()
-                                                                                      ) + list(self.up.parameters()) + list(self.out.parameters()) + list(self.warp.parameters())
+        params = self.model.parameters()
 
         self.optimizer = torch.optim.Adam(params, self.lr)
 
     def forward(self, x, device):
-        y1 = self.down(x)
-
-        y2 = self.latent(y1)
-        y1, _ = self.skip(y1, y2, device=device)
-
-        y = torch.cat((y1, pad3d(y2, y1, device=device)), dim=1)
-        y = self.up(y)
-
-        y = pad3d(y, x, device=device)
-
-        self.flow = self.out(y)
-
-        y = self.warp(x, self.flow)
-
+        y, self.flow = self.model(x, device)
         return y
 
     def optimize(self, moving, target, device, debug=True):
         losses_train = []
         message = 'Reached max epochs'
         self.train()
+
+        if debug:
+            plt.imshow(torch.squeeze(
+                moving[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+            plt.title('Moving')
+            plt.show()
+
+            plt.imshow(torch.squeeze(
+                target[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+            plt.title('Target')
+            plt.show()
 
         for eps in trange(self.max_epochs):
             self.optimizer.zero_grad()
@@ -190,6 +273,8 @@ class grad_register(nn.Module):
                         for i in range(len(self.criterions))])
             error.backward()
             self.optimizer.step()
+
+            self.warp = self.model.warp
 
             losses_train.append(error.item())
 
@@ -202,6 +287,16 @@ class grad_register(nn.Module):
                     plt.legend()
                     plt.show()
 
+                    plt.imshow(torch.squeeze(
+                        y[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+                    plt.title('Warped Moving')
+                    plt.show()
+
+                    plt.imshow(moveaxis(torch.squeeze(
+                        norm(torch.abs(self.flow[:, :, :, :, 60]))).detach().cpu().numpy(), 0, -1))
+                    plt.title('Flow Field')
+                    plt.show()
+
             if losses_train[-1] <= self.stop_crit:
                 message = 'Converged to %f' % self.stop_crit
                 break
@@ -209,31 +304,46 @@ class grad_register(nn.Module):
         if debug:
             print('Optimization ended with status: %s' % message)
 
-    def register(self, x):
+    def deform(self, x):
+        self.warp.eval()
         y = self.warp(x, self.flow)
 
         return y
 
 
 def test(device='cpu'):
-    a = torch.zeros((1, 1, 80, 80, 80), device=device)
-    a[:, :, 10:20, 10:20,
-        10:20] += torch.ones((1, 1, 10, 10, 10), device=device)
-    b = torch.zeros((1, 1, 80, 80, 80), device=device)
-    b[:, :, 50:60, 50:60,
-        50:60] += torch.ones((1, 1, 10, 10, 10), device=device)
-    c = torch.zeros((1, 1, 80, 80, 80), device=device)
-    c[:, :, 10:20, 10:20,
-        10:20] += torch.rand((1, 1, 10, 10, 10), device=device)
+    def rand_augment(x):
+        affine = RandomAffine(image_interpolation='bspline',
+                              degrees=15, translation=5)
+        y = affine(x[0])
+        return y.view(x.shape)
 
-    model = grad_register(a.shape[2:], mode='bilinear').to(device)
-    model.optimize(b, a, device)
-    d = model.register(c)
+    path = 'R:/img (%d).pkl' % (1)
+    data = load(path, allow_pickle=True)
 
-    print(a.shape)
-    print(b.shape)
-    print(c.shape)
-    print(d.shape)
+    moving = torch.from_numpy(data[0]).view(
+        1, 1, data[0].shape[0], data[0].shape[1], data[0].shape[2]).to(device=device, dtype=torch.float)
+    target = rand_augment(torch.from_numpy(data[0]).view(
+        1, 1, data[0].shape[0], data[1].shape[1], data[0].shape[2])).to(device=device, dtype=torch.float)
+
+    flowreg = flow_register(target.shape[2:], mode='bilinear', n=16).to(device)
+    flowreg.optimize(moving, target, device)
+    d = flowreg.deform(moving)
+
+    plt.imshow(torch.squeeze(
+        moving[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+    plt.title('Moving')
+    plt.show()
+
+    plt.imshow(torch.squeeze(
+        d[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+    plt.title('Warped Moving')
+    plt.show()
+
+    plt.imshow(torch.squeeze(
+        target[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+    plt.title('Target')
+    plt.show()
 
 
 if __name__ == '__main__':

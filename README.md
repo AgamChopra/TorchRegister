@@ -10,4 +10,4 @@
     <br><i>Fig. Example visualizations of loss curve for above flow-field brain MRI registration.</i><br><br>
 </p>
 
-<p><a href="https://raw.githubusercontent.com/AgamChopra/TorchGradRegister/main/LICENSE" target="blank">[The MIT License]</a></p>
+<p><a href="https://raw.githubusercontent.com/AgamChopra/TorchGradRegister/main/LICENSE.md" target="blank">[The MIT License]</a></p>

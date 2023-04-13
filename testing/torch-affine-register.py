@@ -97,8 +97,8 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
 
 def test(device='cpu'):
     def rand_augment(x):
-        affine = RandomAffine(image_interpolation='bspline',
-                              degrees=15, translation=8)
+        affine = RandomAffine(image_interpolation='nearest',
+                              degrees=45, translation=8, scales=(0.7, 1.5))
         y = affine(x[0])
         return y.view(x.shape)
 

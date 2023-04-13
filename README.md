@@ -7,7 +7,8 @@
     <img width="900" height="250" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/affine_test.jpg"> 
     <br><i>Fig. Example visualizations of PyTorch based Affine brain MRI registration.</i><br><br>
     <img width="300" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/flow_test_loss.png">   
-    <br><i>Fig. Example visualizations of loss curve for above flow-field brain MRI registration.</i><br><br>
+    <img width="300" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/affine_test_loss.png">  
+    <br><i>Fig. Example visualizations of loss curve for flow-field registration(left) and affine registration(right).</i><br><br>
 </p>
 
 <p><a href="https://raw.githubusercontent.com/AgamChopra/TorchGradRegister/main/LICENSE.md" target="blank">[The MIT License]</a></p>

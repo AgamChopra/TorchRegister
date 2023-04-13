@@ -4,7 +4,7 @@
 <p align="center">
     <img width="900" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/flow_test.jpg"> 
     <br><i>Fig. Example visualizations of deep learning based flow-field brain MRI registration.</i><br><br>
-    <img width="900" height="250" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/affine_test.jpg"> 
+    <img width="900" height="240" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/affine_test.jpg"> 
     <br><i>Fig. Example visualizations of PyTorch based Affine brain MRI registration.</i><br><br>
     <img width="300" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/flow_test_loss.png">   
     <img width="300" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/affine_test_loss.png">  

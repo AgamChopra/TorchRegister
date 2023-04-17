@@ -17,23 +17,21 @@ import random
 class Theta(nn.Module):
     def __init__(self):
         super(Theta, self).__init__()
-        self.activation_fn = nn.ModuleList([nn.Tanh(), nn.Tanh(), nn.Tanh(
-        ), nn.Tanh(), nn.Tanh(), nn.Tanh(), nn.Tanh(), nn.Tanh(), nn.Tanh()])
+        self.activation = F.tanh
 
     def forward(self, x):
         output = x.clone()
-        output[:, 0] = self.activation_fn[0](output[:, 0])
-        output[:, 1] = 2 * self.activation_fn[1](output[:, 1])
-        output[:, 2] = 2 * self.activation_fn[2](output[:, 2])
+        output[:, 0] = self.activation(output[:, 0])
+        output[:, 1] = 2 * self.activation(output[:, 1])
+        output[:, 2] = 2 * self.activation(output[:, 2])
 
-        output[:, 4] = self.activation_fn[3](output[:, 4])
-        output[:, 5] = 2 * self.activation_fn[4](output[:, 5])
-        output[:, 6] = 2 * self.activation_fn[5](output[:, 6])
+        output[:, 4] = self.activation(output[:, 4])
+        output[:, 5] = 2 * self.activation(output[:, 5])
+        output[:, 6] = 2 * self.activation(output[:, 6])
 
-        output[:, 8] = self.activation_fn[6](output[:, 8])
-        output[:, 9] = self.activation_fn[7](output[:, 9])
-        output[:, 10] = self.activation_fn[8](output[:, 10])
-
+        output[:, 8] = self.activation(output[:, 8])
+        output[:, 9] = self.activation(output[:, 9])
+        output[:, 10] = self.activation(output[:, 10])
         return output
 
 
@@ -130,7 +128,7 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
 
 def test(device='cpu'):
     def rand_augment(x):
-        affine = RandomAffine(image_interpolation='nearest',
+        affine = RandomAffine(image_interpolation='bspline',
                               degrees=25, translation=10)
         y = affine(x[0])
         return y.view(x.shape)

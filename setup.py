@@ -92,6 +92,7 @@ setup(
     url=URL,
     packages=find_packages(),
     install_requires=REQUIRED,
+    extras_require={}
     include_package_data=True,
     license='MIT',
     classifiers=[

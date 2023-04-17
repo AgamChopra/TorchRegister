@@ -1,5 +1,5 @@
 <h1>TorchGradRegister</h1>
-<p>Various PyTorch based 3D image registration methods.</p>
+<p>Common medical 3D image registration methods such as rigid, affine, and flow field for PyTorch.</p>
 
 <p align="center">
     <img width="900" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/flow_test.jpg">

@@ -92,7 +92,9 @@ setup(
     url=URL,
     packages=find_packages(),
     install_requires=REQUIRED,
-    extras_require={"": ["torchio"]},
+    extras_require={
+        "": ["torchio"],
+        },
     include_package_data=True,
     license='MIT',
     classifiers=[

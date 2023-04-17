@@ -1,4 +1,4 @@
-<h1>TorchGradRegister</h1>
+<h1>TorchRegister</h1>
 <p>Common medical 3D image registration methods such as rigid, affine, and flow field for PyTorch.</p>
 
 <p align="center">

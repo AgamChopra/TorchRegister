@@ -37,9 +37,12 @@
         # loading data
         path = 'example_mri.pkl'
         data = load(path, allow_pickle=True)
+        
+        moving = torch.from_numpy(data)
         moving = moving.view(1, 1, moving.shape[0], moving.shape[1], moving.shape[2]).to(
             dtype=torch.float, device=device)
-        target = torch.from_numpy(data[0])
+        
+        target = torch.from_numpy(data)
         target = rand_augment(target.view(1, 1, target.shape[0], target.shape[1], target.shape[2])).to(
             dtype=torch.float, device=device)
 

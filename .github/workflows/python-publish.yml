@@ -22,7 +22,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Set up Python
+    - name: Set up Python 🐍
       uses: actions/setup-python@v3
       with:
         python-version: '3.x'
@@ -32,8 +32,8 @@ jobs:
         pip install build
     - name: Build package
       run: python -m build
-    - name: Publish package
-      uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
+    - name: Publish distribution 📦 to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
       with:
         user: ${{secrets.PYPI_USER}}
         password: ${{secrets.PYPI_PASSWORD}}

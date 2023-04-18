@@ -1,4 +1,4 @@
-from .torchregister import *
-from .warpings import *
 from .utils import *
-__version__ = '0.1.0'
+from .warpings import *
+from .torchregister import *
+__version__ = '0.1.1'

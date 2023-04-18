@@ -12,7 +12,7 @@ from numpy import moveaxis
 from tqdm import trange
 from matplotlib import pyplot as plt
 
-from utils import Regressor, Attention_UNet, norm
+from .utils import Regressor, Attention_UNet, norm
 
 
 # Warping Function #

@@ -4,7 +4,7 @@ Created on Mon Apr 16 2023
 
 @author: Agam Chopra
 """
-import warpings as wrp
+from .warpings import flow_register, affine_register, rigid_register, get_affine_warp
 
 
 class Register():
@@ -27,7 +27,7 @@ class Register():
 
         '''
         self.mode = mode
-        self.warp = None if mode == 'flow' else wrp.get_affine_warp
+        self.warp = None if mode == 'flow' else get_affine_warp
         self.device = device
         self.debug = debug
         self.theta = None
@@ -57,18 +57,18 @@ class Register():
 
         '''
         if self.mode == 'flow':
-            flowreg = wrp.flow_register(
+            flowreg = flow_register(
                 target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs).to(self.device)
             flowreg.optimize(moving, target, self.device, self.debug)
             self.theta = flowreg.flow
             self.warp = flowreg.deform
 
         elif self.mode == 'affine':
-            _, theta = wrp.affine_register(
+            _, theta = affine_register(
                 moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug)
             self.theta = theta[-1]
         else:
-            _, theta = wrp.rigid_register(
+            _, theta = rigid_register(
                 moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug)
             self.theta = theta[-1]
 

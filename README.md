@@ -21,7 +21,7 @@
         from torchio.transforms import RandomAffine
         from numpy import load
         from matplotlib import pyplot as plt
-        from torchregister import Register
+        from TorchRegister import Register
 
 
         # augmentation function

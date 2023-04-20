@@ -7,6 +7,7 @@ Created on Mon Apr 16 2023
 import torch
 import torch.nn as nn
 from math import ceil
+from numpy import flip, array
 
 
 def norm(x):
@@ -20,13 +21,12 @@ def norm(x):
             print('WARNING: Input could not be normalized!')
 
 
-def pad3d(input_, target, device='cpu'):
-    delta = [target.shape[2+i] - input_.shape[2+i] for i in range(3)]
-    return nn.functional.pad(input=input_, pad=(ceil(delta[2]/2), delta[2] - ceil(delta[2]/2),
-                                                ceil(
-                                                    delta[1]/2), delta[1] - ceil(delta[1]/2),
-                                                ceil(delta[0]/2), delta[0] - ceil(delta[0]/2)),
-                             mode='constant', value=0).to(dtype=torch.float, device=device)
+def padNd(input_, target, device='cpu', mode='constant', value=0): # N-D padding function of form (Batch, Channel,...)
+    dims = len(input_.shape) - 2
+    delta = [target.shape[2+i] - input_.shape[2+i] for i in range(dims)]   
+    pads = tuple(flip(array([[ceil(delta[i]/2), delta[i] - ceil(delta[i]/2)] for i in range(dims)]).flatten()))
+    
+    return nn.functional.pad(input=input_, pad=pads, mode=mode, value=value).to(dtype=torch.float, device=device)
 
 
 class Theta(nn.Module):
@@ -36,35 +36,52 @@ class Theta(nn.Module):
 
     def forward(self, x):
         output = x.clone()
-        output[:, 0] = self.activation(output[:, 0])
-        output[:, 1] = 2 * self.activation(output[:, 1])
-        output[:, 2] = 2 * self.activation(output[:, 2])
-
-        output[:, 4] = self.activation(output[:, 4])
-        output[:, 5] = 2 * self.activation(output[:, 5])
-        output[:, 6] = 2 * self.activation(output[:, 6])
-
-        output[:, 8] = self.activation(output[:, 8])
-        output[:, 9] = self.activation(output[:, 9])
-        output[:, 10] = self.activation(output[:, 10])
+        if output.shape[1] > 6:
+            output[:, 0] = self.activation(output[:, 0])
+            output[:, 1] = 2 * self.activation(output[:, 1])
+            output[:, 2] = 2 * self.activation(output[:, 2])
+    
+            output[:, 4] = self.activation(output[:, 4])
+            output[:, 5] = 2 * self.activation(output[:, 5])
+            output[:, 6] = 2 * self.activation(output[:, 6])
+    
+            output[:, 8] = self.activation(output[:, 8])
+            output[:, 9] = self.activation(output[:, 9])
+            output[:, 10] = self.activation(output[:, 10])
+        else:
+            output[:, 0] = self.activation(output[:, 0])
+            output[:, 1] = self.activation(output[:, 1])
+            output[:, 3] = self.activation(output[:, 3])
+            output[:, 4] = self.activation(output[:, 4])
         return output
 
 
 class Regressor(nn.Module):
     def __init__(self, moving, per, device):
         super(Regressor, self).__init__()
-        self.reg = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
-            moving).shape[0])), 64, bias=False), nn.ReLU(), nn.Linear(64, 12)).to(device=device)
-        self.reg[0].weight.data.zero_()
-        self.reg[2].weight.data.zero_()
-        self.reg[2].bias.data.copy_(torch.tensor(
-            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
+        if len(moving.shape) == 5:
+            self.reg = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
+                moving).shape[0])), 64, bias=False), nn.ReLU(), nn.Linear(64, 12)).to(device=device)
+            self.reg[0].weight.data.zero_()
+            self.reg[2].weight.data.zero_()
+            self.reg[2].bias.data.copy_(torch.tensor(
+                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
+        else:
+            self.reg = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
+                moving).shape[0])), 32, bias=False), nn.ReLU(), nn.Linear(32, 6)).to(device=device)
+            self.reg[0].weight.data.zero_()
+            self.reg[2].weight.data.zero_()
+            self.reg[2].bias.data.copy_(torch.tensor(
+                [1, 0, 0, 0, 1, 0], dtype=torch.float))
         self.thetas = Theta()
 
     def forward(self, input_):
         var = self.reg(input_)
         theta = self.thetas(var)
-        return theta.view(1, 3, 4)
+        if len(input_.shape) == 5:
+            return theta.view(1, 3, 4)
+        else:
+            return theta.view(1,2,3)
 
 
 class SpatialTransformer(nn.Module):
@@ -121,10 +138,10 @@ class attention_grid(nn.Module):
         b = self.gate_filter(g)
 
         if a.shape[-1] < b.shape[-1]:
-            a = pad3d(a, b, device)
+            a = padNd(a, b, device)
 
         elif a.shape[-1] > b.shape[-1]:
-            b = pad3d(b, a, device)
+            b = padNd(b, a, device)
 
         w = torch.sigmoid(self.psi(nn.functional.relu(a + b)))
         w = nn.functional.interpolate(w, size=x_shape[2:], mode=self.mode)
@@ -203,22 +220,22 @@ class Attention_UNet(nn.Module):
         y = self.layer5(y)
         y4, _ = self.skip4(y4, y, device=device)
 
-        y = torch.cat((y4, pad3d(y, y4, device=device)), dim=1)
+        y = torch.cat((y4, padNd(y, y4, device=device)), dim=1)
         y = self.layer6(y)
         y3, _ = self.skip3(y3, y, device=device)
 
-        y = torch.cat((y3, pad3d(y, y3, device=device)), dim=1)
+        y = torch.cat((y3, padNd(y, y3, device=device)), dim=1)
         y = self.layer7(y)
         y2, _ = self.skip2(y2, y, device=device)
 
-        y = torch.cat((y2, pad3d(y, y2, device=device)), dim=1)
+        y = torch.cat((y2, padNd(y, y2, device=device)), dim=1)
         y = self.layer8(y)
         y1, _ = self.skip1(y1, y, device=device)
 
-        y = torch.cat((y1, pad3d(y, y1, device=device)), dim=1)
+        y = torch.cat((y1, padNd(y, y1, device=device)), dim=1)
         y = self.layer9(y)
 
-        y = pad3d(y, x, device=device)
+        y = padNd(y, x, device=device)
 
         flow = self.out(y)
 

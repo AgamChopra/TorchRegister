@@ -21,11 +21,13 @@ def norm(x):
             print('WARNING: Input could not be normalized!')
 
 
-def padNd(input_, target, device='cpu', mode='constant', value=0): # N-D padding function of form (Batch, Channel,...)
+# N-D padding function of form (Batch, Channel,...)
+def padNd(input_, target, device='cpu', mode='constant', value=0):
     dims = len(input_.shape) - 2
-    delta = [target.shape[2+i] - input_.shape[2+i] for i in range(dims)]   
-    pads = tuple(flip(array([[ceil(delta[i]/2), delta[i] - ceil(delta[i]/2)] for i in range(dims)]).flatten()))
-    
+    delta = [target.shape[2+i] - input_.shape[2+i] for i in range(dims)]
+    pads = tuple(flip(array(
+        [[ceil(delta[i]/2), delta[i] - ceil(delta[i]/2)] for i in range(dims)]).flatten()))
+
     return nn.functional.pad(input=input_, pad=pads, mode=mode, value=value).to(dtype=torch.float, device=device)
 
 
@@ -40,11 +42,11 @@ class Theta(nn.Module):
             output[:, 0] = self.activation(output[:, 0])
             output[:, 1] = 2 * self.activation(output[:, 1])
             output[:, 2] = 2 * self.activation(output[:, 2])
-    
+
             output[:, 4] = self.activation(output[:, 4])
             output[:, 5] = 2 * self.activation(output[:, 5])
             output[:, 6] = 2 * self.activation(output[:, 6])
-    
+
             output[:, 8] = self.activation(output[:, 8])
             output[:, 9] = self.activation(output[:, 9])
             output[:, 10] = self.activation(output[:, 10])
@@ -81,7 +83,7 @@ class Regressor(nn.Module):
         if len(input_.shape) == 5:
             return theta.view(1, 3, 4)
         else:
-            return theta.view(1,2,3)
+            return theta.view(1, 2, 3)
 
 
 class SpatialTransformer(nn.Module):
@@ -120,15 +122,24 @@ class SpatialTransformer(nn.Module):
 
 
 class attention_grid(nn.Module):
-    def __init__(self, x_c, g_c, i_c, stride=3, mode='nearest'):
+    def __init__(self, x_c, g_c, i_c, stride=3, mode='nearest', dims=3):
         super(attention_grid, self).__init__()
-        self.input_filter = nn.Conv3d(
-            in_channels=x_c, out_channels=i_c, kernel_size=1, stride=stride, bias=False)
-        self.gate_filter = nn.Conv3d(
-            in_channels=g_c, out_channels=i_c, kernel_size=1, stride=1, bias=True)
-        self.psi = nn.Conv3d(in_channels=i_c, out_channels=1,
-                             kernel_size=1, stride=1, bias=True)
-        self.bnorm = nn.InstanceNorm3d(i_c)
+        if dims == 3:
+            self.input_filter = nn.Conv3d(
+                in_channels=x_c, out_channels=i_c, kernel_size=1, stride=stride, bias=False)
+            self.gate_filter = nn.Conv3d(
+                in_channels=g_c, out_channels=i_c, kernel_size=1, stride=1, bias=True)
+            self.psi = nn.Conv3d(in_channels=i_c, out_channels=1,
+                                 kernel_size=1, stride=1, bias=True)
+            self.bnorm = nn.InstanceNorm3d(i_c)
+        else:
+            self.input_filter = nn.Conv2d(
+                in_channels=x_c, out_channels=i_c, kernel_size=1, stride=stride, bias=False)
+            self.gate_filter = nn.Conv2d(
+                in_channels=g_c, out_channels=i_c, kernel_size=1, stride=1, bias=True)
+            self.psi = nn.Conv2d(in_channels=i_c, out_channels=1,
+                                 kernel_size=1, stride=1, bias=True)
+            self.bnorm = nn.InstanceNorm2d(i_c)
         self.mode = mode
 
     def forward(self, x, g, device):
@@ -152,55 +163,115 @@ class attention_grid(nn.Module):
 
 
 class Attention_UNet(nn.Module):
-    def __init__(self, img_size, mode='nearest', in_c=1, out_c=3, n=1):
+    def __init__(self, img_size, mode='nearest', in_c=1, n=1):
         super(Attention_UNet, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv3d(in_channels=in_c, out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
-                                    nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
+        if len(img_size) == 5:
+            out_c = 3
+            self.layer1 = nn.Sequential(nn.Conv3d(in_channels=in_c, out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
+                                        nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
 
-        self.skip1 = attention_grid(int(64/n), int(64/n), int(64/n))
+            self.skip1 = attention_grid(
+                int(64/n), int(64/n), int(64/n), dims=3)
 
-        self.layer2 = nn.Sequential(nn.Conv3d(in_channels=int(64/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
-                                    nn.Conv3d(in_channels=int(128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)))
+            self.layer2 = nn.Sequential(nn.Conv3d(in_channels=int(64/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
+                                        nn.Conv3d(in_channels=int(128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)))
 
-        self.skip2 = attention_grid(int(128/n), int(128/n), int(128/n))
+            self.skip2 = attention_grid(
+                int(128/n), int(128/n), int(128/n), dims=3)
 
-        self.layer3 = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
-                                    nn.Conv3d(in_channels=int(256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)))
+            self.layer3 = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
+                                        nn.Conv3d(in_channels=int(256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)))
 
-        self.skip3 = attention_grid(int(256/n), int(256/n), int(256/n))
+            self.skip3 = attention_grid(
+                int(256/n), int(256/n), int(256/n), dims=3)
 
-        self.layer4 = nn.Sequential(nn.Conv3d(in_channels=int(256/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
-                                    nn.Conv3d(in_channels=int(512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)))
+            self.layer4 = nn.Sequential(nn.Conv3d(in_channels=int(256/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
+                                        nn.Conv3d(in_channels=int(512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)))
 
-        self.skip4 = attention_grid(int(512/n), int(512/n), int(512/n))
+            self.skip4 = attention_grid(
+                int(512/n), int(512/n), int(512/n), dims=3)
 
-        self.layer5 = nn.Sequential(nn.Conv3d(in_channels=int(512/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(1024/n)),
-                                    nn.Conv3d(in_channels=int(
-                                        1024/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(1024/n)),
-                                    nn.ConvTranspose3d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(512/n)))
+            self.layer5 = nn.Sequential(nn.Conv3d(in_channels=int(512/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(1024/n)),
+                                        nn.Conv3d(in_channels=int(
+                                            1024/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(1024/n)),
+                                        nn.ConvTranspose3d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(512/n)))
 
-        self.layer6 = nn.Sequential(nn.Conv3d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
-                                    nn.Conv3d(in_channels=int(
-                                        512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
-                                    nn.ConvTranspose3d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(256/n)))
+            self.layer6 = nn.Sequential(nn.Conv3d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
+                                        nn.Conv3d(in_channels=int(
+                                            512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(512/n)),
+                                        nn.ConvTranspose3d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(256/n)))
 
-        self.layer7 = nn.Sequential(nn.Conv3d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
-                                    nn.Conv3d(in_channels=int(
-                                        256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
-                                    nn.ConvTranspose3d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(128/n)))
+            self.layer7 = nn.Sequential(nn.Conv3d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
+                                        nn.Conv3d(in_channels=int(
+                                            256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(256/n)),
+                                        nn.ConvTranspose3d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(128/n)))
 
-        self.layer8 = nn.Sequential(nn.Conv3d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
-                                    nn.Conv3d(in_channels=int(
-                                        128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
-                                    nn.ConvTranspose3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
+            self.layer8 = nn.Sequential(nn.Conv3d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
+                                        nn.Conv3d(in_channels=int(
+                                            128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(128/n)),
+                                        nn.ConvTranspose3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
 
-        self.layer9 = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
-                                    nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
+            self.layer9 = nn.Sequential(nn.Conv3d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
+                                        nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))
 
-        self.out = nn.Conv3d(in_channels=int(
-            64/n), out_channels=out_c, kernel_size=1)
+            self.out = nn.Conv3d(in_channels=int(
+                64/n), out_channels=out_c, kernel_size=1)
 
-        self.maxpool = nn.MaxPool3d(kernel_size=2, stride=2)
+            self.maxpool = nn.MaxPool3d(kernel_size=2, stride=2)
+
+        else:
+            out_c = 2
+            self.layer1 = nn.Sequential(nn.Conv2d(in_channels=in_c, out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(64/n)),
+                                        nn.Conv2d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(64/n)))
+
+            self.skip1 = attention_grid(
+                int(64/n), int(64/n), int(64/n), dims=2)
+
+            self.layer2 = nn.Sequential(nn.Conv2d(in_channels=int(64/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(128/n)),
+                                        nn.Conv2d(in_channels=int(128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(128/n)))
+
+            self.skip2 = attention_grid(
+                int(128/n), int(128/n), int(128/n), dims=2)
+
+            self.layer3 = nn.Sequential(nn.Conv2d(in_channels=int(128/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(256/n)),
+                                        nn.Conv2d(in_channels=int(256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(256/n)))
+
+            self.skip3 = attention_grid(
+                int(256/n), int(256/n), int(256/n), dims=2)
+
+            self.layer4 = nn.Sequential(nn.Conv2d(in_channels=int(256/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(512/n)),
+                                        nn.Conv2d(in_channels=int(512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(512/n)))
+
+            self.skip4 = attention_grid(
+                int(512/n), int(512/n), int(512/n), dims=2)
+
+            self.layer5 = nn.Sequential(nn.Conv2d(in_channels=int(512/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(1024/n)),
+                                        nn.Conv2d(in_channels=int(
+                                            1024/n), out_channels=int(1024/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(1024/n)),
+                                        nn.ConvTranspose2d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm2d(int(512/n)))
+
+            self.layer6 = nn.Sequential(nn.Conv2d(in_channels=int(1024/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(512/n)),
+                                        nn.Conv2d(in_channels=int(
+                                            512/n), out_channels=int(512/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(512/n)),
+                                        nn.ConvTranspose2d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm2d(int(256/n)))
+
+            self.layer7 = nn.Sequential(nn.Conv2d(in_channels=int(512/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(256/n)),
+                                        nn.Conv2d(in_channels=int(
+                                            256/n), out_channels=int(256/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(256/n)),
+                                        nn.ConvTranspose2d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm2d(int(128/n)))
+
+            self.layer8 = nn.Sequential(nn.Conv2d(in_channels=int(256/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(128/n)),
+                                        nn.Conv2d(in_channels=int(
+                                            128/n), out_channels=int(128/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(128/n)),
+                                        nn.ConvTranspose2d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=2, stride=2), nn.ReLU(), nn.InstanceNorm2d(int(64/n)))
+
+            self.layer9 = nn.Sequential(nn.Conv2d(in_channels=int(128/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(64/n)),
+                                        nn.Conv2d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm2d(int(64/n)))
+
+            self.out = nn.Conv2d(in_channels=int(
+                64/n), out_channels=out_c, kernel_size=1)
+
+            self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.warp = SpatialTransformer(img_size, mode)
 

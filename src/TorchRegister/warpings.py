@@ -17,30 +17,52 @@ from .utils import Regressor, Attention_UNet, norm
 
 # Warping Function #
 def get_affine_warp(theta, moving):
+    if len(theta.shape) == 2:
+        if theta.shape[-1] == 6:
+            theta = theta.view(1, 2, 3)
+        else:
+            theta = theta.view(1, 3, 4)
     grid = F.affine_grid(theta, moving.size(), align_corners=False)
     warped = F.grid_sample(moving, grid, align_corners=False, mode='bilinear')
     return warped
 
 
 # Affine Registration #
-def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True):
+def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60):
     if debug:
-        plt.imshow(torch.squeeze(
-            moving[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+        if len(moving.shape) == 5:
+            plt.imshow(torch.squeeze(
+                moving[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+        else:
+            plt.imshow(torch.squeeze(
+                moving).detach().cpu().numpy(), cmap='gray')
         plt.title('Moving')
         plt.show()
 
-        plt.imshow(torch.squeeze(
-            target[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+        if len(moving.shape) == 5:
+            plt.imshow(torch.squeeze(
+                target[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+        else:
+            plt.imshow(torch.squeeze(
+                target).detach().cpu().numpy(), cmap='gray')
         plt.title('Target')
         plt.show()
 
-    regressor = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
-        moving).shape[0])), 64, bias=False), nn.ReLU(), nn.Linear(64, 12)).to(device=device)
-    regressor[0].weight.data.zero_()
-    regressor[2].weight.data.zero_()
-    regressor[2].bias.data.copy_(torch.tensor(
-        [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
+    if len(moving.shape) == 5:
+        regressor = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
+            moving).shape[0])), 64, bias=False), nn.ReLU(), nn.Linear(64, 12)).to(device=device)
+        regressor[0].weight.data.zero_()
+        regressor[2].weight.data.zero_()
+        regressor[2].bias.data.copy_(torch.tensor(
+            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
+    else:
+        regressor = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
+            moving).shape[0])), 32, bias=False), nn.ReLU(), nn.Linear(32, 6)).to(device=device)
+        regressor[0].weight.data.zero_()
+        regressor[2].weight.data.zero_()
+        regressor[2].bias.data.copy_(torch.tensor(
+            [1, 0, 0, 0, 1, 0], dtype=torch.float))
+
     params = regressor.parameters()
     optimizer = torch.optim.SGD(params, lr)
     criterions = [nn.MSELoss(), nn.L1Loss()]
@@ -57,7 +79,12 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
     for eps in trange(epochs):
         optimizer.zero_grad()
 
-        theta = regressor(input_).view(1, 3, 4)  # 3D Affine Matrix
+        theta = regressor(input_)  # 3D Affine Matrix
+        if len(moving.shape) == 5:
+            theta = theta.view(1, 3, 4)
+        else:
+            theta = theta.view(1, 2, 3)
+
         warped = get_affine_warp(theta, moving)
 
         error = sum([weights[i] * criterions[i](target, warped)
@@ -86,28 +113,45 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
                 plt.legend()
                 plt.show()
 
-                plt.imshow(torch.squeeze(
-                    warped[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+                if len(moving.shape) == 5:
+                    plt.imshow(torch.squeeze(
+                        warped[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+                else:
+                    plt.imshow(torch.squeeze(
+                        warped).detach().cpu().numpy(), cmap='gray')
                 plt.title('Warped Moving')
                 plt.show()
 
     regressor.eval()
-    final_theta = regressor(input_).view(1, 3, 4)
+    final_theta = regressor(input_)
+    if len(moving.shape) == 5:
+        final_theta = final_theta.view(1, 3, 4)
+    else:
+        final_theta = final_theta.view(1, 2, 3)
+
     final_warped = get_affine_warp(final_theta, moving)
 
     return [final_warped, best_warped], [final_theta, best_theta]
 
 
 # Rigid Registration #
-def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True):
+def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60):
     if debug:
-        plt.imshow(torch.squeeze(
-            moving[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+        if len(moving.shape) == 5:
+            plt.imshow(torch.squeeze(
+                moving[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+        else:
+            plt.imshow(torch.squeeze(
+                moving).detach().cpu().numpy(), cmap='gray')
         plt.title('Moving')
         plt.show()
 
-        plt.imshow(torch.squeeze(
-            target[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+        if len(moving.shape) == 5:
+            plt.imshow(torch.squeeze(
+                target[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+        else:
+            plt.imshow(torch.squeeze(
+                target).detach().cpu().numpy(), cmap='gray')
         plt.title('Target')
         plt.show()
 
@@ -156,8 +200,12 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
                 plt.legend()
                 plt.show()
 
-                plt.imshow(torch.squeeze(
-                    warped[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+                if len(moving.shape) == 5:
+                    plt.imshow(torch.squeeze(
+                        warped[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+                else:
+                    plt.imshow(torch.squeeze(
+                        warped).detach().cpu().numpy(), cmap='gray')
                 plt.title('Warped Moving')
                 plt.show()
 
@@ -173,10 +221,10 @@ class flow_register(nn.Module):
     Non-linear model for 3D image registration via overfitting.
     '''
 
-    def __init__(self, img_size, mode='bilinear', in_c=1, out_c=3, n=1, criterions=[nn.MSELoss(), nn.L1Loss()], weights=[0.5, 0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
+    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(), nn.L1Loss()], weights=[0.5, 0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
         super(flow_register, self).__init__()
         self.model = Attention_UNet(
-            img_size, mode, in_c=in_c, out_c=out_c, n=n)
+            img_size, mode, in_c=in_c, n=n)
 
         self.flow = None
 
@@ -192,19 +240,27 @@ class flow_register(nn.Module):
         y, self.flow = self.model(x, device)
         return y
 
-    def optimize(self, moving, target, device, debug=True):
+    def optimize(self, moving, target, device, debug=True, idx=60):
         losses_train = []
         message = 'Reached max epochs'
         self.train()
 
         if debug:
-            plt.imshow(torch.squeeze(
-                moving[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+            if len(moving.shape) == 5:
+                plt.imshow(torch.squeeze(
+                    moving[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+            else:
+                plt.imshow(torch.squeeze(
+                    moving).detach().cpu().numpy(), cmap='gray')
             plt.title('Moving')
             plt.show()
 
-            plt.imshow(torch.squeeze(
-                target[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+            if len(moving.shape) == 5:
+                plt.imshow(torch.squeeze(
+                    target[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+            else:
+                plt.imshow(torch.squeeze(
+                    target).detach().cpu().numpy(), cmap='gray')
             plt.title('Target')
             plt.show()
 
@@ -231,13 +287,21 @@ class flow_register(nn.Module):
                     plt.legend()
                     plt.show()
 
-                    plt.imshow(torch.squeeze(
-                        y[:, :, :, :, 60]).detach().cpu().numpy(), cmap='gray')
+                    if len(moving.shape) == 5:
+                        plt.imshow(torch.squeeze(
+                            y[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
+                    else:
+                        plt.imshow(torch.squeeze(
+                            y).detach().cpu().numpy(), cmap='gray')
                     plt.title('Warped Moving')
                     plt.show()
 
-                    plt.imshow(moveaxis(torch.squeeze(
-                        norm(torch.abs(self.flow[:, :, :, :, 60]))).detach().cpu().numpy(), 0, -1))
+                    if len(moving.shape) == 5:
+                        plt.imshow(moveaxis(torch.squeeze(
+                            norm(torch.abs(self.flow[:, :, :, :, 60]))).detach().cpu().numpy(), 0, -1))
+                    else:
+                        plt.imshow(moveaxis(torch.squeeze(
+                            norm(torch.mean(torch.abs(self.flow), dim=1))).detach().cpu().numpy(), 0, -1), cmap='gray')
                     plt.title('Flow Field')
                     plt.show()
 

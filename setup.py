@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='TorchRegister',
-    version='0.1.1',
+    version='0.2.0',
     url='https://github.com/AgamChopra/TorchRegister',
     author='Agam Chopra',
     author_email='achopra4@uw.edu',

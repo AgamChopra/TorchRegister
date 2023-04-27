@@ -21,13 +21,12 @@
         from torchio.transforms import RandomAffine
         from numpy import load
         from matplotlib import pyplot as plt
-        from TorchRegister import Register
+        import TorchRegister as tr
 
 
-        # augmentation function
         def rand_augment(x):
             affine = RandomAffine(image_interpolation='bspline',
-                                  degrees=45, translation=8, scales=(0.7, 1.5))
+                                  degrees=25, translation=4, scales=(0.8, 1.2))
             y = affine(x[0])
             return y.view(x.shape)
 
@@ -35,39 +34,60 @@
         device = 'cuda'
 
         # loading data
-        path = 'example_mri.pkl'
+        path = 'R:/img (%d).pkl' % (1)
         data = load(path, allow_pickle=True)
-        
-        moving = torch.from_numpy(data)
+        moving = torch.from_numpy(data[0])
         moving = moving.view(1, 1, moving.shape[0], moving.shape[1], moving.shape[2]).to(
             dtype=torch.float, device=device)
-        
-        target = torch.from_numpy(data)
+        target = torch.from_numpy(data[0])
         target = rand_augment(target.view(1, 1, target.shape[0], target.shape[1], target.shape[2])).to(
             dtype=torch.float, device=device)
-
-        # Flow field based registration
-        warping = Register(mode='flow', device=device, debug=True)
-        warping.optim(moving, target, lr=1E-3)
-        warped = warping(moving)
-
-        print(target.shape)
-        print(moving.shape)
-        print(warped[0].shape)
 
         plt.imshow(torch.squeeze(moving[:, :, :, :, 60]
                                  ).detach().cpu().numpy(), cmap='gray')
         plt.title('Moving')
         plt.show()
 
-        plt.imshow(torch.squeeze(warped[:, :, :, :, 60]
-                                 ).detach().cpu().numpy(), cmap='gray')
-        plt.title('Warped Moving')
-        plt.show()
-
         plt.imshow(torch.squeeze(target[:, :, :, :, 60]
                                  ).detach().cpu().numpy(), cmap='gray')
         plt.title('Target')
+        plt.show()
+
+        # Rigid registration
+        warping = tr.Register(mode='rigid', device=device, debug=False)
+        warping.optim(moving, target, max_epochs=500, lr=1E-5)
+        warped = warping(moving)
+
+        plt.imshow(torch.squeeze(warped[:, :, :, :, 60]
+                                 ).detach().cpu().numpy(), cmap='gray')
+        plt.title('Warped Moving 1')
+        plt.show()
+
+        # Affine registration
+        moving = warped.detach()
+        warping = tr.Register(mode='affine', device=device, debug=False)
+        warping.optim(moving, target, max_epochs=200, lr=1E-5)
+        warped = warping(moving)
+
+        plt.imshow(torch.squeeze(warped[:, :, :, :, 60]
+                                 ).detach().cpu().numpy(), cmap='gray')
+        plt.title('Warped Moving 2')
+        plt.show()
+
+        # Flow field based registration
+        moving = warped.detach()
+        warping = tr.Register(mode='flow', device=device, debug=False)
+        warping.optim(moving, target, lr=1E-3, max_epochs=100)
+        warped = warping(moving)
+
+        plt.imshow(torch.squeeze(warped[:, :, :, :, 60]
+                                 ).detach().cpu().numpy(), cmap='gray')
+        plt.title('Warped Moving 3')
+        plt.show()
+
+        plt.imshow(torch.moveaxis(torch.squeeze(tr.norm(
+            torch.abs(warping.theta[:, :, :, :, 60]))), 0, -1).detach().cpu().numpy())
+        plt.title('Flow Field')
         plt.show()
 </code></pre>
 

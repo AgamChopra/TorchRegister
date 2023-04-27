@@ -80,7 +80,7 @@ class Regressor(nn.Module):
     def forward(self, input_):
         var = self.reg(input_)
         theta = self.thetas(var)
-        if len(input_.shape) == 5:
+        if theta.shape[-1] == 12:
             return theta.view(1, 3, 4)
         else:
             return theta.view(1, 2, 3)
@@ -165,7 +165,7 @@ class attention_grid(nn.Module):
 class Attention_UNet(nn.Module):
     def __init__(self, img_size, mode='nearest', in_c=1, n=1):
         super(Attention_UNet, self).__init__()
-        if len(img_size) == 5:
+        if len(img_size) == 3:
             out_c = 3
             self.layer1 = nn.Sequential(nn.Conv3d(in_channels=in_c, out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)),
                                         nn.Conv3d(in_channels=int(64/n), out_channels=int(64/n), kernel_size=3), nn.ReLU(), nn.InstanceNorm3d(int(64/n)))

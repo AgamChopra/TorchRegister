@@ -32,7 +32,7 @@ class Register():
         self.debug = debug
         self.theta = None
 
-    def optim(self, moving, target, lr=1E-5, max_epochs=1000, n=16, per=0.1):
+    def optim(self, moving, target, lr=1E-5, max_epochs=1000, n=32, per=0.1):
         '''
         Optimization loop to get deformation matrix/flow-field
 

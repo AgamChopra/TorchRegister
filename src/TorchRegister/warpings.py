@@ -113,15 +113,6 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
                 plt.legend()
                 plt.show()
 
-                if len(moving.shape) == 5:
-                    plt.imshow(torch.squeeze(
-                        warped[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-                else:
-                    plt.imshow(torch.squeeze(
-                        warped).detach().cpu().numpy(), cmap='gray')
-                plt.title('Warped Moving')
-                plt.show()
-
     regressor.eval()
     final_theta = regressor(input_)
     if len(moving.shape) == 5:
@@ -200,15 +191,6 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
                 plt.legend()
                 plt.show()
 
-                if len(moving.shape) == 5:
-                    plt.imshow(torch.squeeze(
-                        warped[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-                else:
-                    plt.imshow(torch.squeeze(
-                        warped).detach().cpu().numpy(), cmap='gray')
-                plt.title('Warped Moving')
-                plt.show()
-
     final_theta = regressor(input_)
     final_warped = get_affine_warp(final_theta, moving)
 
@@ -285,24 +267,6 @@ class flow_register(nn.Module):
                     plt.xlabel('Epoch')
                     plt.ylabel('Error')
                     plt.legend()
-                    plt.show()
-
-                    if len(moving.shape) == 5:
-                        plt.imshow(torch.squeeze(
-                            y[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-                    else:
-                        plt.imshow(torch.squeeze(
-                            y).detach().cpu().numpy(), cmap='gray')
-                    plt.title('Warped Moving')
-                    plt.show()
-
-                    if len(moving.shape) == 5:
-                        plt.imshow(moveaxis(torch.squeeze(
-                            norm(torch.abs(self.flow[:, :, :, :, 60]))).detach().cpu().numpy(), 0, -1))
-                    else:
-                        plt.imshow(moveaxis(torch.squeeze(
-                            norm(torch.mean(torch.abs(self.flow), dim=1))).detach().cpu().numpy(), 0, -1), cmap='gray')
-                    plt.title('Flow Field')
                     plt.show()
 
             if losses_train[-1] <= self.stop_crit:

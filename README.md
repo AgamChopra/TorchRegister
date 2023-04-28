@@ -2,7 +2,7 @@
 <p>Common 2D and 3D image registration methods such as rigid, affine, and flow field for PyTorch.</p>
 
 <p align="center">
-    <img width="900" height="240" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/ringo_registration_2d.jpg">
+    <img width="600" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/ringo_registration_2d.jpg">
     <br><i>Fig. Example visualizations 2D image registration.</i><br><br>
     <img width="900" height="200" src="https://github.com/AgamChopra/TorchGradRegister/blob/main/assets/flow_test.jpg">
     <br><i>Fig. Example visualizations of deep learning based flow-field brain MRI registration.</i><br><br>

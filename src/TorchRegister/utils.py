@@ -34,27 +34,34 @@ def padNd(input_, target, device='cpu', mode='constant', value=0):
 class Theta(nn.Module):
     def __init__(self):
         super(Theta, self).__init__()
-        self.activation = nn.Tanh()
+        self.sin = torch.sin
+        self.cos = torch.cos
 
     def forward(self, x):
         output = x.clone()
         if output.shape[1] > 6:
-            output[:, 0] = self.activation(output[:, 0])
-            output[:, 1] = 2 * self.activation(output[:, 1])
-            output[:, 2] = 2 * self.activation(output[:, 2])
+            psi, theta, phi = x[:, 0], x[:, 1], x[:, 2]
+            output[:, 0] = self.cos(psi) * self.cos(theta)
+            output[:, 1] = self.sin(phi) * self.sin(psi) * \
+                self.cos(theta) - self.cos(phi) * self.sin(theta)
+            output[:, 2] = self.cos(phi) * self.sin(psi) * \
+                self.cos(theta) + self.sin(phi) * self.sin(theta)
 
-            output[:, 4] = self.activation(output[:, 4])
-            output[:, 5] = 2 * self.activation(output[:, 5])
-            output[:, 6] = 2 * self.activation(output[:, 6])
+            output[:, 4] = self.cos(psi) * self.sin(theta)
+            output[:, 5] = self.sin(phi) * self.sin(psi) * \
+                self.sin(theta) + self.cos(phi) * self.cos(theta)
+            output[:, 6] = self.cos(phi) * self.sin(psi) * \
+                self.sin(theta) - self.sin(phi) * self.cos(theta)
 
-            output[:, 8] = self.activation(output[:, 8])
-            output[:, 9] = self.activation(output[:, 9])
-            output[:, 10] = self.activation(output[:, 10])
+            output[:, 8] = - self.sin(psi)
+            output[:, 9] = self.sin(phi) * self.cos(psi)
+            output[:, 10] = self.cos(phi) * self.cos(psi)
         else:
-            output[:, 0] = self.activation(output[:, 0])
-            output[:, 1] = self.activation(output[:, 1])
-            output[:, 3] = self.activation(output[:, 3])
-            output[:, 4] = self.activation(output[:, 4])
+            theta = x[:, 0]
+            output[:, 0] = self.cos(theta)
+            output[:, 1] = - self.sin(theta)
+            output[:, 3] = self.sin(theta)
+            output[:, 4] = self.cos(theta)
         return output
 
 

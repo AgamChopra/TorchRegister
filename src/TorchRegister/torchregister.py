@@ -8,7 +8,7 @@ from .warpings import flow_register, affine_register, rigid_register, get_affine
 
 
 class Register():
-    def __init__(self, mode='rigid', device='cpu', debug=False):
+    def __init__(self, mode='rigid', device='cpu', debug=False, criterion=None, weights=None, optim='SGD'):
         '''
         Pytorch based numerical registration methods
 
@@ -20,12 +20,22 @@ class Register():
             device to perform registration/optimization on. The default is 'cpu'.
         debug : string, optional
             print outputs of registration and loss curve every nth epoch. The default is False.
+        criterion : list of nn.losses, optional
+            criterion used to calculate registration error. The default is None ie- [nn.MSELoss(), nn.L1Loss()].
+        weights : list of floats, optional
+            weights associated with criterion. The default is None ie- [0.5, 0.5].
+        optim : string, optional
+            optimizer to use, SGD or ADAM. The default is 'SGD'.
+
 
         Returns
         -------
         None.
 
         '''
+        self.criterion = criterion
+        self.weights = weights
+        self.optim = optim
         self.mode = mode
         self.warp = None if mode == 'flow' else get_affine_warp
         self.device = device
@@ -57,19 +67,26 @@ class Register():
 
         '''
         if self.mode == 'flow':
-            flowreg = flow_register(
-                target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs).to(self.device)
+            if self.criterion is not None and self.weights is not None:
+                flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs, criterions=self.criterion, weights=self.weight, optim=self.optim).to(self.device)
+            else:
+                flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs, optim=self.optim).to(self.device)
             flowreg.optimize(moving, target, self.device, self.debug)
             self.theta = flowreg.flow
             self.warp = flowreg.deform
 
         elif self.mode == 'affine':
-            _, theta = affine_register(
-                moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug)
+            if self.criterion is not None and self.weights is not None:
+                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, criterions=self.criterion, weights=self.weight, optim=self.optim)
+            else:
+                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, optim=self.optim)         
             self.theta = theta[-1]
+            
         else:
-            _, theta = rigid_register(
-                moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug)
+            if self.criterion is not None and self.weights is not None:
+                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, criterions=self.criterion, weights=self.weight, optim=self.optim)
+            else:
+                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, optim=self.optim)  
             self.theta = theta[-1]
 
     def __call__(self, moving):

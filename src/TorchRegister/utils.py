@@ -14,10 +14,7 @@ def norm(x):
     EPSILON = 1E-9
     try:
         return (x - torch.min(x)) / ((torch.max(x) - torch.min(x)) + EPSILON)
-    except torch.is_tensor(x):
-        try:
-            return (x - min(x)) / ((max(x) - min(x)) + EPSILON)
-        except Exception:
+    except Exception:
             print('WARNING: Input could not be normalized!')
 
 

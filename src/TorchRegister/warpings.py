@@ -8,11 +8,10 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from numpy import moveaxis
 from tqdm import trange
 from matplotlib import pyplot as plt
 
-from .utils import Regressor, Attention_UNet, norm
+from .utils import Regressor, Attention_UNet
 
 
 # Warping Function #
@@ -28,7 +27,7 @@ def get_affine_warp(theta, moving):
 
 
 # Affine Registration #
-def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60):
+def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions = [nn.MSELoss(), nn.L1Loss()], weights = [0.5, 0.5], optim='SGD'):
     if debug:
         if len(moving.shape) == 5:
             plt.imshow(torch.squeeze(
@@ -64,9 +63,11 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
             [1, 0, 0, 0, 1, 0], dtype=torch.float))
 
     params = regressor.parameters()
-    optimizer = torch.optim.SGD(params, lr)
-    criterions = [nn.MSELoss(), nn.L1Loss()]
-    weights = [0.5, 0.5]
+    
+    if optim == 'SGD':
+        optimizer = torch.optim.SGD(params, lr)
+    else:
+        optimizer = torch.optim.Adam(params, lr)
 
     regressor.train()
     losses_train = []
@@ -126,7 +127,7 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
 
 
 # Rigid Registration #
-def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60):
+def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions = [nn.MSELoss(), nn.L1Loss()], weights = [0.5, 0.5], optim = 'SGD'):
     if debug:
         if len(moving.shape) == 5:
             plt.imshow(torch.squeeze(
@@ -148,9 +149,11 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
 
     regressor = Regressor(moving, per, device)
     params = regressor.parameters()
-    optimizer = torch.optim.SGD(params, lr)
-    criterions = [nn.MSELoss(), nn.L1Loss()]
-    weights = [0.5, 0.5]
+    
+    if optim == 'SGD':
+        optimizer = torch.optim.SGD(params, lr)
+    else:
+        optimizer = torch.optim.Adam(params, lr)
 
     losses_train = []
 
@@ -199,11 +202,7 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
 
 # Flow Registeration #
 class flow_register(nn.Module):
-    '''
-    Non-linear model for 3D image registration via overfitting.
-    '''
-
-    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(), nn.L1Loss()], weights=[0.5, 0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
+    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(), nn.L1Loss()], weights=[0.5, 0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4, optim='SGD'):
         super(flow_register, self).__init__()
         self.model = Attention_UNet(
             img_size, mode, in_c=in_c, n=n)
@@ -215,8 +214,11 @@ class flow_register(nn.Module):
         self.criterions, self.weights, self.lr, self.max_epochs, self.stop_crit = criterions, weights, lr, max_epochs, stop_crit
 
         params = self.model.parameters()
-
-        self.optimizer = torch.optim.Adam(params, self.lr)
+        
+        if optim == 'SGD':
+            self.optimizer = torch.optim.SGD(params, lr)
+        else:
+            self.optimizer = torch.optim.Adam(params, lr)
 
     def forward(self, x, device):
         y, self.flow = self.model(x, device)

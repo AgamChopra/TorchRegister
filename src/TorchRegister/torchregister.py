@@ -5,6 +5,7 @@ Created on Mon Apr 16 2023
 @author: Agam Chopra
 """
 from .warpings import flow_register, affine_register, rigid_register, get_affine_warp
+from .utils import norm
 
 
 class Register():
@@ -66,6 +67,8 @@ class Register():
         None.
 
         '''
+        moving, target = norm(moving), norm(target)
+
         if self.mode == 'flow':
             if self.criterion is not None and self.weights is not None:
                 flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs, criterions=self.criterion, weights=self.weight, optim=self.optim).to(self.device)

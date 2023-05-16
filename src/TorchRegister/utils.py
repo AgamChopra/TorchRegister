@@ -6,8 +6,64 @@ Created on Mon Apr 16 2023
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from math import ceil
 from numpy import flip, array
+import numpy as np
+
+
+EPSILON = 1E-6
+
+
+class NCCLoss(nn.Module):
+    '''
+    Simple implementation for Normalized Cross Correlation that can be
+    minimized with upper-bound of alpha and lower-bound of 0.
+    '''
+
+    def __init__(self, alpha=5000):
+        super(NCCLoss, self).__init__()
+        self.NCC = None  # -1(very dissimilar) to 1(very similar)
+        self.alpha = alpha
+
+    def forward(self, y, yp):
+        y_ = y - torch.mean(y)
+        yp_ = yp - torch.mean(yp)
+        self.NCC = torch.sum(
+            y_ * yp_) / (((torch.sum(y_**2)) * torch.sum(yp_**2) + EPSILON)**0.5)
+        error = self.alpha * (1 - self.NCC)
+        return error
+
+
+class SSDLoss(nn.Module):
+    '''
+    Simple implementation for Sum of Square Differance Loss.
+    '''
+
+    def __init__(self, alpha=100):
+        super(SSDLoss, self).__init__()
+        self.SSD = None
+        self.alpha = alpha
+
+    def forward(self, y, yp):
+        self.SSD = torch.sum((y - yp)**2)
+        error = self.alpha * self.SSD
+        return error
+
+
+class MIILoss(nn.Module):
+    '''
+    Simple implementation for Mutual Image Information Loss.
+    '''
+
+    def __init__(self, alpha=100):
+        super(MIILoss, self).__init__()
+        self.MII = None
+        self.alpha = alpha
+
+    def forward(self, y, yp):
+        error = None
+        return error
 
 
 def norm(x):
@@ -15,7 +71,7 @@ def norm(x):
     try:
         return (x - torch.min(x)) / ((torch.max(x) - torch.min(x)) + EPSILON)
     except Exception:
-            print('WARNING: Input could not be normalized!')
+        print('WARNING: Input could not be normalized!')
 
 
 # N-D padding function of form (Batch, Channel,...)

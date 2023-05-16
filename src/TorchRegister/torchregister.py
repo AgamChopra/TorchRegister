@@ -4,12 +4,12 @@ Created on Mon Apr 16 2023
 
 @author: Agam Chopra
 """
+from torch import cat
 from .warpings import flow_register, affine_register, rigid_register, get_affine_warp
-from .utils import norm
 
 
 class Register():
-    def __init__(self, mode='rigid', device='cpu', debug=False, criterion=None, weights=None, optim='SGD'):
+    def __init__(self, mode='rigid', device='cpu', criterion=None, weight=None, debug=False):
         '''
         Pytorch based numerical registration methods
 
@@ -25,7 +25,7 @@ class Register():
             criterion used to calculate registration error. The default is None ie- [nn.MSELoss(), nn.L1Loss()].
         weights : list of floats, optional
             weights associated with criterion. The default is None ie- [0.5, 0.5].
-        optim : string, optional
+        optm : string, optional
             optimizer to use, SGD or ADAM. The default is 'SGD'.
 
 
@@ -35,8 +35,7 @@ class Register():
 
         '''
         self.criterion = criterion
-        self.weights = weights
-        self.optim = optim
+        self.weight = weight
         self.mode = mode
         self.warp = None if mode == 'flow' else get_affine_warp
         self.device = device
@@ -67,29 +66,42 @@ class Register():
         None.
 
         '''
-        moving, target = norm(moving), norm(target)
-
         if self.mode == 'flow':
-            if self.criterion is not None and self.weights is not None:
-                flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs, criterions=self.criterion, weights=self.weight, optim=self.optim).to(self.device)
+            if self.criterion is not None and self.weight is not None:
+                flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs,
+                                        criterions=self.criterion, weights=self.weight).to(self.device)
+            elif self.weight is not None:
+                flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs,
+                                        weights=self.weight).to(self.device)
             else:
-                flowreg = flow_register(target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs, optim=self.optim).to(self.device)
+                flowreg = flow_register(
+                    target.shape[2:], mode='bilinear', n=n, lr=lr, max_epochs=max_epochs).to(self.device)
             flowreg.optimize(moving, target, self.device, self.debug)
             self.theta = flowreg.flow
             self.warp = flowreg.deform
 
         elif self.mode == 'affine':
-            if self.criterion is not None and self.weights is not None:
-                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, criterions=self.criterion, weights=self.weight, optim=self.optim)
+            if self.criterion is not None and self.weight is not None:
+                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
+                                           debug=self.debug, criterions=self.criterion, weights=self.weight,)
+            elif self.weight is not None:
+                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
+                                           debug=self.debug, weights=self.weight)
             else:
-                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, optim=self.optim)         
+                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs,
+                                           per=per, device=self.device, debug=self.debug)
             self.theta = theta[-1]
-            
+
         else:
-            if self.criterion is not None and self.weights is not None:
-                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, criterions=self.criterion, weights=self.weight, optim=self.optim)
+            if self.criterion is not None and self.weight is not None:
+                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
+                                          debug=self.debug, criterions=self.criterion, weights=self.weight)
+            elif self.weight is not None:
+                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
+                                           debug=self.debug, weights=self.weight)
             else:
-                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device, debug=self.debug, optim=self.optim)  
+                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs,
+                                          per=per, device=self.device, debug=self.debug)
             self.theta = theta[-1]
 
     def __call__(self, moving):
@@ -99,16 +111,18 @@ class Register():
         Parameters
         ----------
         moving : tensor
-            Tensor of shape [1,1,x,y,z] to be warped.
+            Tensor of shape [1,c,x,y,z] to be warped.
 
         Returns
         -------
         warped_moving : tensor
-            Warped tensor of shape [1,1,x,y,z].
+            Warped tensor of shape [1,c,x,y,z].
 
         '''
         if self.mode == 'flow':
-            warped_moving = self.warp(moving)
+            warped_moving = cat([self.warp(moving[:, i:i+1])
+                                  for i in range(moving.shape[1])], dim=1)
         else:
-            warped_moving = self.warp(self.theta, moving)
+            warped_moving = cat([self.warp(self.theta, moving[:, i:i+1])
+                                  for i in range(moving.shape[1])], dim=1)
         return warped_moving

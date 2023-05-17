@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from tqdm import trange
 from matplotlib import pyplot as plt
 
-from .utils import Regressor, Attention_UNet, NCCLoss
+from utils import Regressor, Attention_UNet, NCCLoss
 
 
 # Warping Function #
@@ -27,9 +27,10 @@ def get_affine_warp(theta, moving):
 
 
 # Affine Registration #
-def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5]):
+def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5], grad_edges=True):
     if criterions is None:
-        criterions = [nn.MSELoss(), NCCLoss()]
+        criterions = [nn.MSELoss(), NCCLoss(
+            grad_edges=grad_edges, device=device)]
     else:
         criterions = [nn.MSELoss()]
         weights = [1.]
@@ -127,9 +128,10 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
 
 
 # Rigid Registration #
-def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5]):
+def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5], grad_edges=True):
     if criterions is None:
-        criterions = [nn.MSELoss(), NCCLoss()]
+        criterions = [nn.MSELoss(), NCCLoss(
+            grad_edges=grad_edges, device=device)]
     else:
         criterions = [nn.MSELoss()]
         weights = [1.]
@@ -203,7 +205,7 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
 
 # Flow Registeration #
 class flow_register(nn.Module):
-    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(),NCCLoss()], weights=[0.5,0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
+    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(), NCCLoss(device='cuda')], weights=[0.5, 0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
         super(flow_register, self).__init__()
         self.model = Attention_UNet(
             img_size, mode, in_c=in_c, n=n)

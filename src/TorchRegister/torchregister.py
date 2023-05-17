@@ -5,11 +5,11 @@ Created on Mon Apr 16 2023
 @author: Agam Chopra
 """
 from torch import cat
-from .warpings import flow_register, affine_register, rigid_register, get_affine_warp
+from warpings import flow_register, affine_register, rigid_register, get_affine_warp
 
 
 class Register():
-    def __init__(self, mode='rigid', device='cpu', criterion=None, weight=None, debug=False):
+    def __init__(self, mode='rigid', device='cpu', criterion=None, weight=None, grad_edges=False, debug=False):
         '''
         Pytorch based numerical registration methods
 
@@ -41,6 +41,7 @@ class Register():
         self.device = device
         self.debug = debug
         self.theta = None
+        self.grad_edges = grad_edges
 
     def optim(self, moving, target, lr=1E-5, max_epochs=1000, n=32, per=0.1):
         '''
@@ -83,24 +84,24 @@ class Register():
         elif self.mode == 'affine':
             if self.criterion is not None and self.weight is not None:
                 _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
-                                           debug=self.debug, criterions=self.criterion, weights=self.weight,)
+                                           debug=self.debug, criterions=self.criterion, weights=self.weight, grad_edges=self.grad_edges)
             elif self.weight is not None:
                 _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
-                                           debug=self.debug, weights=self.weight)
+                                           debug=self.debug, weights=self.weight, grad_edges=self.grad_edges)
             else:
-                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs,
+                _, theta = affine_register(moving, target, lr=lr, epochs=max_epochs, grad_edges=self.grad_edges,
                                            per=per, device=self.device, debug=self.debug)
             self.theta = theta[-1]
 
         else:
             if self.criterion is not None and self.weight is not None:
                 _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
-                                          debug=self.debug, criterions=self.criterion, weights=self.weight)
+                                          debug=self.debug, criterions=self.criterion, weights=self.weight, grad_edges=self.grad_edges)
             elif self.weight is not None:
                 _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, per=per, device=self.device,
-                                           debug=self.debug, weights=self.weight)
+                                          debug=self.debug, weights=self.weight, grad_edges=self.grad_edges)
             else:
-                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs,
+                _, theta = rigid_register(moving, target, lr=lr, epochs=max_epochs, grad_edges=self.grad_edges,
                                           per=per, device=self.device, debug=self.debug)
             self.theta = theta[-1]
 
@@ -121,8 +122,8 @@ class Register():
         '''
         if self.mode == 'flow':
             warped_moving = cat([self.warp(moving[:, i:i+1])
-                                  for i in range(moving.shape[1])], dim=1)
+                                 for i in range(moving.shape[1])], dim=1)
         else:
             warped_moving = cat([self.warp(self.theta, moving[:, i:i+1])
-                                  for i in range(moving.shape[1])], dim=1)
+                                 for i in range(moving.shape[1])], dim=1)
         return warped_moving

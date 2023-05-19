@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from tqdm import trange
 from matplotlib import pyplot as plt
 
-from utils import Regressor, Attention_UNet, NCCLoss
+from .utils import Regressor, Attention_UNet, NCCLoss
 
 
 # Warping Function #

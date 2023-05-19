@@ -6,18 +6,44 @@ Created on Mon Apr 16 2023
 """
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch import histc  # histogram
 from math import ceil
 from numpy import flip, array
 import numpy as np
 
 
-EPSILON = 1E-6
+EPSILON = 1E-10
+
+
+def normalized_mutual_information(img1, img2, bins=256):
+    img1 = torch.flatten(img1)
+    img2 = torch.flatten(img2)
+
+    # Calculate the histograms
+    hist1 = histc(img1, bins=bins)
+    hist2 = histc(img2, bins=bins)
+    hist_joint = histc(torch.stack((img1, img2)), bins=bins)
+
+    # Calculate the probability distributions
+    p1 = hist1 / torch.sum(hist1)
+    p2 = hist2 / torch.sum(hist2)
+    p_joint = hist_joint / torch.sum(hist_joint)
+
+    # Calculate the shannon entropy
+    E1 = -torch.sum(p1 * -torch.log2(p1 + EPSILON))
+    E2 = -torch.sum(p2 * -torch.log2(p2 + EPSILON))
+    E_joint = -torch.sum(p_joint * -torch.log2(p_joint + EPSILON))
+
+    # Calculate the mutual information
+    mutual_info = E1 + E2 - E_joint
+    norm_mutual_info = 2 * mutual_info / (E1 + E2)
+
+    return norm_mutual_info, mutual_info
 
 
 def get_sobel_kernel3D(n1=1, n2=2, n3=2):
     '''
-    Returns 3D Sobel kernels Sx, Sy, Sz, and diagonal kernels
+    Returns 3D Sobel kernels Sx, Sy, Sz, and diagonal kernels.
     ex:
         Sx = [[[-n1, 0, n1],
                [-n2, 0, n2],
@@ -63,13 +89,13 @@ def get_sobel_kernel3D(n1=1, n2=2, n3=2):
     return [Sx, Sy, Sz, Sd11, Sd12, Sd21, Sd22, Sd31, Sd32]
 
 
-class GradEdge3D():
+class Edge3D():
     '''
-    Sobel edge detection algorithm compatible with PyTorch Autograd engine.
+    Sobel edge filter.
     '''
 
     def __init__(self, n1=1, n2=2, n3=2, device='cpu'):
-        super(GradEdge3D, self).__init__()
+        super(Edge3D, self).__init__()
         self.device = device
         k_sobel = 3
         S = get_sobel_kernel3D(n1, n2, n3)
@@ -83,9 +109,9 @@ class GradEdge3D():
             sobel_filter = sobel_filter.to(device, dtype=torch.float32)
             self.sobel_filters.append(sobel_filter)
 
-    def __call__(self, img, a=1):
+    def __call__(self, img, a=5000, thresh=[0.2, 0.9]):
         '''
-        Detect edges using Sobel operator for a 3d image
+        Detect edges using Sobel operator for a 3d image.
 
         Parameters
         ----------
@@ -93,11 +119,13 @@ class GradEdge3D():
             3D torch tensor of shape (b, c, x, y, z).
         a : int, optional
             padding to be added, do not change unless necessary. The default is 1.
+        thresh : list of floats
+            lower and upper bounds(exclusive) for filtering edges between (0,1). The default is [0.01,0.1].
 
         Returns
         -------
         torch tensor
-            tensor of gradient edges of shape (b, 1, x, y, z).
+            tensor of shape (b, 1, x, y, z) containing filtered edges.
 
         '''
         pad = (a, a, a, a, a, a)
@@ -108,8 +136,13 @@ class GradEdge3D():
         grad_mag = (1 / C) * torch.sum(torch.stack([torch.sum(torch.cat([s(img[:, c:c+1])for c in range(
             C)], dim=1) + EPSILON, dim=1) ** 2 for s in self.sobel_filters], dim=1) + EPSILON, dim=1) ** 0.5
         grad_mag = grad_mag[:, a:-a, a:-a, a:-a]
+        edges = norm(grad_mag.view(B, 1, H, W, D))
 
-        return grad_mag.view(B, 1, H, W, D)
+        lower_mask = torch.where(edges > thresh[0], 1, 0)
+        upper_mask = torch.where(edges < thresh[1], 1, 0)
+        edges = lower_mask * upper_mask
+
+        return edges.detach().to(dtype=torch.float)
 
 
 class NCCLoss(nn.Module):
@@ -118,24 +151,18 @@ class NCCLoss(nn.Module):
     minimized with upper-bound of alpha and lower-bound of 0.
     '''
 
-    def __init__(self, alpha=5000, grad_edges=True, device='cpu'):
+    def __init__(self, alpha=100, grad_edges=True, device='cpu'):
         super(NCCLoss, self).__init__()
         self.NCC = None  # -1(very dissimilar) to 1(very similar)
         self.alpha = alpha
-        self.edge_filter = GradEdge3D(1, 2, 2, device)
-        self.edges = grad_edges
 
     def forward(self, y, yp):
-        if self.edges and len(y.shape) == 5:
-            y = self.edge_filter(y)
-            yp = self.edge_filter(yp)
-
         y_ = y - torch.mean(y)
         yp_ = yp - torch.mean(yp)
         self.NCC = torch.sum(
             y_ * yp_) / (((torch.sum(y_**2)) * torch.sum(yp_**2) + EPSILON)**0.5)
 
-        error = self.alpha * (1 - self.NCC)
+        error = (1 - self.NCC) * self.alpha
 
         return error
 
@@ -145,29 +172,30 @@ class SSDLoss(nn.Module):
     Simple implementation for Sum of Square Differance Loss.
     '''
 
-    def __init__(self, alpha=100):
+    def __init__(self, alpha=3):
         super(SSDLoss, self).__init__()
         self.SSD = None
         self.alpha = alpha
 
     def forward(self, y, yp):
         self.SSD = torch.sum((y - yp)**2)
-        error = self.alpha * self.SSD
+        error = self.SSD * self.alpha
         return error
 
 
-class MIILoss(nn.Module):
+class NMILoss(nn.Module):
     '''
     Simple implementation for Mutual Image Information Loss.
     '''
 
-    def __init__(self, alpha=100):
-        super(MIILoss, self).__init__()
-        self.MII = None
+    def __init__(self, alpha=10000, bins=256):
+        super(NMILoss, self).__init__()
+        self.bins = bins
         self.alpha = alpha
 
     def forward(self, y, yp):
-        error = None
+        nmi, _ = normalized_mutual_information(y, yp, bins=self.bins)
+        error = torch.abs(nmi - 1) * self.alpha
         return error
 
 

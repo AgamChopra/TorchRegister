@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from tqdm import trange
 from matplotlib import pyplot as plt
 
-from .utils import Regressor, Attention_UNet, NCCLoss
+from .utils import Regressor, Attention_UNet, NCCLoss, Edge3D
 
 
 # Warping Function #
@@ -28,12 +28,17 @@ def get_affine_warp(theta, moving):
 
 # Affine Registration #
 def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5], grad_edges=True):
+    if grad_edges:
+        edge_filter = Edge3D(device=device)
+        moving = edge_filter(moving)
+        target = edge_filter(target)
+
     if criterions is None:
-        criterions = [nn.MSELoss(), NCCLoss(
-            grad_edges=grad_edges, device=device)]
+        criterions = [nn.MSELoss(), NCCLoss(device=device)]
     else:
         criterions = [nn.MSELoss()]
         weights = [1.]
+
     if debug:
         if len(moving.shape) == 5:
             plt.imshow(torch.squeeze(
@@ -129,12 +134,17 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
 
 # Rigid Registration #
 def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5], grad_edges=True):
+    if grad_edges:
+        edge_filter = Edge3D(device=device)
+        moving = edge_filter(moving)
+        target = edge_filter(target)
+
     if criterions is None:
-        criterions = [nn.MSELoss(), NCCLoss(
-            grad_edges=grad_edges, device=device)]
+        criterions = [nn.MSELoss(), NCCLoss(device=device)]
     else:
         criterions = [nn.MSELoss()]
         weights = [1.]
+
     if debug:
         if len(moving.shape) == 5:
             plt.imshow(torch.squeeze(
@@ -224,7 +234,12 @@ class flow_register(nn.Module):
         y, self.flow = self.model(x, device)
         return y
 
-    def optimize(self, moving, target, device, debug=True, idx=60):
+    def optimize(self, moving, target, device, debug=True, idx=60, grad_edges=False):
+        if grad_edges:
+            edge_filter = Edge3D(device=device)
+            moving = edge_filter(moving)
+            target = edge_filter(target)
+
         losses_train = []
         message = 'Reached max epochs'
         self.train()

@@ -6,7 +6,6 @@ Created on Mon Apr 16 2023
 """
 import torch
 import torch.nn as nn
-from torch import histc  # histogram
 from math import ceil
 from numpy import flip, array
 import numpy as np
@@ -15,14 +14,45 @@ import numpy as np
 EPSILON = 1E-10
 
 
-def normalized_mutual_information(img1, img2, bins=256):
+def K_gauss(input_):
+    output_ = (1/(2 * torch.pi)) * torch.exp(-(input_ ** 2) / 2)
+    
+    return output_
+
+
+def PDF_xi(signal, xi, h=3): # h is the bandwidth
+    x_ = (signal - xi) / h
+    tf = K_gauss(x_)
+    p_xi = (1 / h) * torch.mean(tf)
+    
+    return p_xi
+
+
+def PDF(signal, X, h=3):
+    pdf = torch.stack([PDF_xi(signal, xi, h) for xi in X], dim=0)
+    
+    return pdf
+
+
+def get_pdf(data, steps=256, bandwidth=2):
+    device = data.device
+    signal = torch.flatten(data)
+    min_val, max_val = torch.min(signal), torch.max(signal)
+    line_sample = torch.linspace(min_val, max_val, steps, dtype=torch.float, device=device, requires_grad=False)
+    
+    pdf = PDF(signal, line_sample, h = bandwidth)
+    
+    return pdf
+
+
+def normalized_mutual_information(img1, img2, bins=256, bandwidth=3):
     img1 = torch.flatten(img1)
     img2 = torch.flatten(img2)
 
     # Calculate the histograms
-    hist1 = histc(img1, bins=bins)
-    hist2 = histc(img2, bins=bins)
-    hist_joint = histc(torch.stack((img1, img2)), bins=bins)
+    hist1 = get_pdf(img1, steps=bins, bandwidth=bandwidth)
+    hist2 = get_pdf(img2, steps=bins, bandwidth=bandwidth)
+    hist_joint = get_pdf(torch.stack((img1, img2)), steps=bins, bandwidth=bandwidth)
 
     # Calculate the probability distributions
     p1 = hist1 / torch.sum(hist1)

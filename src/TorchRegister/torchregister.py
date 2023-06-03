@@ -5,7 +5,7 @@ Created on Mon Apr 16 2023
 @author: Agam Chopra
 """
 from torch import cat
-from .warpings import flow_register, affine_register, rigid_register, get_affine_warp
+from warpings import flow_register, affine_register, rigid_register, get_affine_warp
 
 
 class Register():

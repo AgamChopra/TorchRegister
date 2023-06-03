@@ -6,6 +6,7 @@ Created on Mon Apr 16 2023
 """
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from math import ceil
 from numpy import flip, array
 import numpy as np
@@ -16,53 +17,60 @@ EPSILON = 1E-10
 
 def K_gauss(input_):
     output_ = (1/(2 * torch.pi)) * torch.exp(-(input_ ** 2) / 2)
-    
+
     return output_
 
 
-def PDF_xi(signal, xi, h=3): # h is the bandwidth
-    x_ = (signal - xi) / h
+def PDF_xis(signals, xis, h=3):  # h is the bandwidth
+    x_diff = torch.stack([signals - xis[:, i:i+1]
+                         for i in range(xis.shape[1])], dim=-1)
+
+    x_ = x_diff / h
     tf = K_gauss(x_)
-    p_xi = (1 / h) * torch.mean(tf)
-    
+    p_xi = (1 / h) * torch.mean(tf, dim=1)
+
     return p_xi
 
 
-def PDF(signal, X, h=3):
-    pdf = torch.stack([PDF_xi(signal, xi, h) for xi in X], dim=0)
-    
+def PDF(signals, Xs, h=3):
+    pdf = PDF_xis(signals, Xs, h)
+
     return pdf
 
 
 def get_pdf(data, steps=256, bandwidth=2):
-    device = data.device
-    signal = torch.flatten(data)
-    min_val, max_val = torch.min(signal), torch.max(signal)
-    line_sample = torch.linspace(min_val, max_val, steps, dtype=torch.float, device=device, requires_grad=False)
-    
-    pdf = PDF(signal, line_sample, h = bandwidth)
-    
+    # [N,...] N flattened 1-d signals
+    signals = torch.flatten(data, start_dim=1)
+
+    min_val, max_val = torch.max(signals).item(), torch.min(
+        signals).item()
+
+    line_samples = torch.linspace(min_val, max_val, steps, dtype=torch.float, device=signals.device,
+                                  requires_grad=False) * torch.ones((len(data), steps), dtype=torch.float, device=signals.device, requires_grad=False)
+
+    pdf = PDF(signals, line_samples, h=bandwidth)
+
     return pdf
 
 
-def normalized_mutual_information(img1, img2, bins=256, bandwidth=3):
-    img1 = torch.flatten(img1)
-    img2 = torch.flatten(img2)
-
-    # Calculate the histograms
+def NMI(img1, img2, bins=256, bandwidth=0.1):
+    # Calculate the approx. histograms via PDF using KDE
     hist1 = get_pdf(img1, steps=bins, bandwidth=bandwidth)
+
     hist2 = get_pdf(img2, steps=bins, bandwidth=bandwidth)
-    hist_joint = get_pdf(torch.stack((img1, img2)), steps=bins, bandwidth=bandwidth)
+
+    hist_joint = get_pdf(torch.stack((img1, img2), dim=1),
+                         steps=bins, bandwidth=bandwidth)
 
     # Calculate the probability distributions
-    p1 = hist1 / torch.sum(hist1)
-    p2 = hist2 / torch.sum(hist2)
-    p_joint = hist_joint / torch.sum(hist_joint)
+    p1 = hist1 / torch.unsqueeze(torch.sum(hist1, dim=1), dim=1)
+    p2 = hist2 / torch.unsqueeze(torch.sum(hist2, dim=1), dim=1)
+    p_joint = hist_joint / torch.unsqueeze(torch.sum(hist_joint, dim=1), dim=1)
 
     # Calculate the shannon entropy
-    E1 = -torch.sum(p1 * -torch.log2(p1 + EPSILON))
-    E2 = -torch.sum(p2 * -torch.log2(p2 + EPSILON))
-    E_joint = -torch.sum(p_joint * -torch.log2(p_joint + EPSILON))
+    E1 = -torch.sum((p1 * -torch.log2(p1 + EPSILON)), dim=1)
+    E2 = -torch.sum((p2 * -torch.log2(p2 + EPSILON)), dim=1)
+    E_joint = -torch.sum((p_joint * -torch.log2(p_joint + EPSILON)), dim=1)
 
     # Calculate the mutual information
     mutual_info = E1 + E2 - E_joint
@@ -218,14 +226,36 @@ class NMILoss(nn.Module):
     Simple implementation for Mutual Image Information Loss.
     '''
 
-    def __init__(self, alpha=10000, bins=256):
+    def __init__(self, alpha=1000, bins=256, patch_size=100, bandwidth=3):
         super(NMILoss, self).__init__()
         self.bins = bins
         self.alpha = alpha
+        self.patch = patch_size
+        self.bandwidth = bandwidth
 
     def forward(self, y, yp):
-        nmi, _ = normalized_mutual_information(y, yp, bins=self.bins)
-        error = torch.abs(nmi - 1) * self.alpha
+        re_shape = self.patch * 2
+
+        if len(y.shape) == 5:
+            y = F.interpolate(
+                y, size=(re_shape, re_shape, re_shape), mode='nearest')
+            y = y.view(8 * y.shape[0] * y.shape[1],
+                       self.patch, self.patch, self.patch)
+            yp = F.interpolate(
+                yp, size=(re_shape, re_shape, re_shape), mode='nearest')
+            yp = yp.view(8 * yp.shape[0] * yp.shape[1],
+                         self.patch, self.patch, self.patch)
+
+        else:
+            y = F.interpolate(y, size=(re_shape, re_shape), mode='nearest')
+            y = y.view(4 * y.shape[0] * y.shape[1], self.patch, self.patch)
+            yp = F.interpolate(yp, size=(re_shape, re_shape), mode='nearest')
+            yp = yp.view(4 * yp.shape[0] *
+                         yp.shape[1], self.patch, self.patch)
+
+        nmi, _ = NMI(y, yp, self.bins, self.bandwidth)
+
+        error = torch.mean(torch.abs(nmi - 1.) * self.alpha)
         return error
 
 
@@ -252,56 +282,47 @@ class Theta(nn.Module):
         super(Theta, self).__init__()
         self.sin = torch.sin
         self.cos = torch.cos
+        self.tanh = torch.tanh
 
-    def forward(self, x):
-        output = x.clone()
-        if output.shape[1] > 6:
-            psi, theta, phi = x[:, 0], x[:, 1], x[:, 2]
-            output[:, 0] = self.cos(psi) * self.cos(theta)
-            output[:, 1] = self.sin(phi) * self.sin(psi) * \
-                self.cos(theta) - self.cos(phi) * self.sin(theta)
-            output[:, 2] = self.cos(phi) * self.sin(psi) * \
-                self.cos(theta) + self.sin(phi) * self.sin(theta)
-
-            output[:, 4] = self.cos(psi) * self.sin(theta)
-            output[:, 5] = self.sin(phi) * self.sin(psi) * \
-                self.sin(theta) + self.cos(phi) * self.cos(theta)
-            output[:, 6] = self.cos(phi) * self.sin(psi) * \
-                self.sin(theta) - self.sin(phi) * self.cos(theta)
-
-            output[:, 8] = - self.sin(psi)
-            output[:, 9] = self.sin(phi) * self.cos(psi)
-            output[:, 10] = self.cos(phi) * self.cos(psi)
+    def forward(self, x, max_translate=0.25):
+        if len(x) > 3:
+            psi, theta, phi = x[0], x[1], x[2]
+            output = torch.stack((self.cos(psi) * self.cos(theta),
+                                  self.sin(
+                                      phi) * self.sin(psi) * self.cos(theta) - self.cos(phi) * self.sin(theta),
+                                  self.cos(
+                                      phi) * self.sin(psi) * self.cos(theta) + self.sin(phi) * self.sin(theta),
+                                  max_translate * self.tanh(x[3]),
+                                  self.cos(psi) * self.sin(theta),
+                                  self.sin(phi) * self.sin(psi) * self.sin(theta) +
+                                  self.cos(phi) * self.cos(theta),
+                                  self.cos(phi) * self.sin(psi) * self.sin(theta) -
+                                  self.sin(phi) * self.cos(theta),
+                                  max_translate * self.tanh(x[4]),
+                                  - self.sin(psi),
+                                  self.sin(phi) * self.cos(psi),
+                                  self.cos(phi) * self.cos(psi),
+                                  max_translate * self.tanh(x[5]))).flatten()
         else:
-            theta = x[:, 0]
-            output[:, 0] = self.cos(theta)
-            output[:, 1] = - self.sin(theta)
-            output[:, 3] = self.sin(theta)
-            output[:, 4] = self.cos(theta)
+            theta = x[0]
+            output = torch.stack((self.cos(theta), - self.sin(theta),
+                                 x[1], self.sin(theta), self.cos(theta), x[2])).flatten()
         return output
 
 
 class Regressor(nn.Module):
-    def __init__(self, moving, per, device):
+    def __init__(self, moving, device):
         super(Regressor, self).__init__()
         if len(moving.shape) == 5:
-            self.reg = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
-                moving).shape[0])), 64, bias=False), nn.ReLU(), nn.Linear(64, 12)).to(device=device)
-            self.reg[0].weight.data.zero_()
-            self.reg[2].weight.data.zero_()
-            self.reg[2].bias.data.copy_(torch.tensor(
-                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
+            self.reg = nn.Parameter(torch.rand(
+                (6), device=device), requires_grad=True)
         else:
-            self.reg = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
-                moving).shape[0])), 32, bias=False), nn.ReLU(), nn.Linear(32, 6)).to(device=device)
-            self.reg[0].weight.data.zero_()
-            self.reg[2].weight.data.zero_()
-            self.reg[2].bias.data.copy_(torch.tensor(
-                [1, 0, 0, 0, 1, 0], dtype=torch.float))
+            self.reg = nn.Parameter(torch.rand(
+                (3), device=device), requires_grad=True)
         self.thetas = Theta()
 
-    def forward(self, input_):
-        var = self.reg(input_)
+    def forward(self):
+        var = self.reg
         theta = self.thetas(var)
         if theta.shape[-1] == 12:
             return theta.view(1, 3, 4)

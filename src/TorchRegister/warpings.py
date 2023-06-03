@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from tqdm import trange
 from matplotlib import pyplot as plt
 
-from .utils import Regressor, Attention_UNet, NCCLoss, Edge3D
+from utils import Regressor, Attention_UNet, NCCLoss, Edge3D, NMILoss
 
 
 # Warping Function #
@@ -27,36 +27,17 @@ def get_affine_warp(theta, moving):
 
 
 # Affine Registration #
-def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5], grad_edges=True):
+def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, criterions=None, weights=[0.33, 0.33, 0.33], grad_edges=True):
     if grad_edges:
         edge_filter = Edge3D(device=device)
         moving = edge_filter(moving)
         target = edge_filter(target)
 
     if criterions is None:
-        criterions = [nn.MSELoss(), NCCLoss(device=device)]
+        criterions = [nn.MSELoss(), NCCLoss(device=device), NMILoss()]
     else:
         criterions = [nn.MSELoss()]
         weights = [1.]
-
-    if debug:
-        if len(moving.shape) == 5:
-            plt.imshow(torch.squeeze(
-                moving[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-        else:
-            plt.imshow(torch.squeeze(
-                moving).detach().cpu().numpy(), cmap='gray')
-        plt.title('Moving')
-        plt.show()
-
-        if len(moving.shape) == 5:
-            plt.imshow(torch.squeeze(
-                target[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-        else:
-            plt.imshow(torch.squeeze(
-                target).detach().cpu().numpy(), cmap='gray')
-        plt.title('Target')
-        plt.show()
 
     if len(moving.shape) == 5:
         regressor = nn.Sequential(nn.Linear(int(2 * per * (torch.flatten(
@@ -133,52 +114,31 @@ def affine_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu',
 
 
 # Rigid Registration #
-def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, idx=60, criterions=None, weights=[0.5, 0.5], grad_edges=True):
+def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', debug=True, criterions=None, weights=[0.33, 0.33, 0.33], grad_edges=True):
     if grad_edges:
         edge_filter = Edge3D(device=device)
         moving = edge_filter(moving)
         target = edge_filter(target)
 
     if criterions is None:
-        criterions = [nn.MSELoss(), NCCLoss(device=device)]
+        criterions = [nn.MSELoss(), NCCLoss(device=device), NMILoss()]
     else:
         criterions = [nn.MSELoss()]
         weights = [1.]
 
-    if debug:
-        if len(moving.shape) == 5:
-            plt.imshow(torch.squeeze(
-                moving[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-        else:
-            plt.imshow(torch.squeeze(
-                moving).detach().cpu().numpy(), cmap='gray')
-        plt.title('Moving')
-        plt.show()
-
-        if len(moving.shape) == 5:
-            plt.imshow(torch.squeeze(
-                target[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-        else:
-            plt.imshow(torch.squeeze(
-                target).detach().cpu().numpy(), cmap='gray')
-        plt.title('Target')
-        plt.show()
-
-    regressor = Regressor(moving, per, device)
+    regressor = Regressor(moving, device)
     params = regressor.parameters()
     optimizer = torch.optim.SGD(params, lr)
     regressor.train()
     losses_train = []
 
-    idx = random.sample(range(0, torch.flatten(
-        moving).shape[-1]), int(per * torch.flatten(moving).shape[0]))
-    input_ = torch.cat((torch.flatten(moving).view(
-        1, -1)[:, idx], torch.flatten(target).view(1, -1)[:, idx]), dim=1)
+    if debug:
+        print(regressor.reg)
 
     for eps in trange(epochs):
         optimizer.zero_grad()
 
-        theta = regressor(input_)
+        theta = regressor()
         warped = get_affine_warp(theta, moving)
 
         error = sum([weights[i] * criterions[i](target, warped)
@@ -206,8 +166,9 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
                 plt.ylabel('Error')
                 plt.legend()
                 plt.show()
+                print(regressor.reg)
 
-    final_theta = regressor(input_)
+    final_theta = regressor()
     final_warped = get_affine_warp(final_theta, moving)
 
     return [final_warped, best_warped], [final_theta, best_theta]
@@ -215,7 +176,7 @@ def rigid_register(moving, target, lr=1E-5, epochs=1000, per=0.1, device='cpu', 
 
 # Flow Registeration #
 class flow_register(nn.Module):
-    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(), NCCLoss(device='cuda')], weights=[0.5, 0.5], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
+    def __init__(self, img_size, mode='bilinear', in_c=1, n=1, criterions=[nn.MSELoss(), NCCLoss(device='cuda'), NMILoss()], weights=[0.33, 0.33, 0.33], lr=1E-3, max_epochs=2000, stop_crit=1E-4):
         super(flow_register, self).__init__()
         self.model = Attention_UNet(
             img_size, mode, in_c=in_c, n=n)
@@ -234,7 +195,7 @@ class flow_register(nn.Module):
         y, self.flow = self.model(x, device)
         return y
 
-    def optimize(self, moving, target, device, debug=True, idx=60, grad_edges=False):
+    def optimize(self, moving, target, device, debug=True, grad_edges=False):
         if grad_edges:
             edge_filter = Edge3D(device=device)
             moving = edge_filter(moving)
@@ -243,25 +204,6 @@ class flow_register(nn.Module):
         losses_train = []
         message = 'Reached max epochs'
         self.train()
-
-        if debug:
-            if len(moving.shape) == 5:
-                plt.imshow(torch.squeeze(
-                    moving[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-            else:
-                plt.imshow(torch.squeeze(
-                    moving).detach().cpu().numpy(), cmap='gray')
-            plt.title('Moving')
-            plt.show()
-
-            if len(moving.shape) == 5:
-                plt.imshow(torch.squeeze(
-                    target[:, :, :, :, idx]).detach().cpu().numpy(), cmap='gray')
-            else:
-                plt.imshow(torch.squeeze(
-                    target).detach().cpu().numpy(), cmap='gray')
-            plt.title('Target')
-            plt.show()
 
         for eps in trange(self.max_epochs):
             self.optimizer.zero_grad()

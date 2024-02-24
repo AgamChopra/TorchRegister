@@ -93,4 +93,4 @@
         plt.show()
 </code></pre>
 
-<p><a href="https://raw.githubusercontent.com/AgamChopra/TorchGradRegister/main/LICENSE.md" target="blank">[The MIT License]</a></p>
+<p><a href="https://raw.githubusercontent.com/AgamChopra/TorchGradRegister/main/LICENSE.md" target="blank">[GNU AGPL3 License]</a></p>
